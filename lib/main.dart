@@ -225,6 +225,69 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<List<File>> _discoverAllImages(Directory directory) async {
+    List<File> allImages = [];
+    try {
+      await for (FileSystemEntity entity in directory.list(recursive: true, followLinks: false)) {
+        if (entity is File && _isImageFile(entity)) {
+          allImages.add(entity);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error discovering images: $e');
+    }
+    return allImages;
+  }
+
+  Widget _buildGalleryThumbnail(File imageFile) {
+    return GestureDetector(
+      onTap: () {
+        final index = _imageFiles.indexOf(imageFile);
+        setState(() {
+          _selectedImage = imageFile;
+          _currentImageIndex = index >= 0 ? index : 0;
+        });
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: Theme.of(context).dividerColor,
+            width: 1,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: _isSvgFile(imageFile)
+              ? SvgPicture.file(
+                  imageFile,
+                  fit: BoxFit.cover,
+                  placeholderBuilder: (context) => Container(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    child: Icon(
+                      Icons.image,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                )
+              : Image.file(
+                  imageFile,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.broken_image,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -485,29 +548,126 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
                       ],
                     )
-                  : Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.photo_library,
-                            size: 64,
-                            color: Theme.of(context).colorScheme.primary,
+                  : _currentDirectory != null
+                      ? FutureBuilder<List<File>>(
+                          future: _discoverAllImages(_currentDirectory!),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            }
+                            
+                            if (snapshot.hasError) {
+                              return Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline,
+                                      size: 64,
+                                      color: Theme.of(context).colorScheme.error,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Error loading gallery',
+                                      style: Theme.of(context).textTheme.titleMedium,
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                            
+                            final allImages = snapshot.data ?? [];
+                            
+                            if (allImages.isEmpty) {
+                              return Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.photo_library,
+                                      size: 64,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No Images Found',
+                                      style: Theme.of(context).textTheme.headlineMedium,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'This directory and its subdirectories contain no images',
+                                      style: Theme.of(context).textTheme.bodyMedium,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                            
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Gallery',
+                                        style: Theme.of(context).textTheme.headlineMedium,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '${allImages.length} images found',
+                                        style: Theme.of(context).textTheme.bodyMedium,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: GridView.builder(
+                                    padding: const EdgeInsets.all(16),
+                                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 4,
+                                      crossAxisSpacing: 8,
+                                      mainAxisSpacing: 8,
+                                      childAspectRatio: 1,
+                                    ),
+                                    itemCount: allImages.length,
+                                    itemBuilder: (context, index) {
+                                      return _buildGalleryThumbnail(allImages[index]);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        )
+                      : Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.photo_library,
+                                size: 64,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Photo View',
+                                style: Theme.of(context).textTheme.headlineMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Navigate to a directory to view images',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Photo View',
-                            style: Theme.of(context).textTheme.headlineMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Select an image from the file explorer to view it here',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
             ),
           ),
         ],
