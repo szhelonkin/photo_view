@@ -121,6 +121,43 @@ class _MyHomePageState extends State<MyHomePage> {
     return _imageExtensions.contains(extension);
   }
 
+  Widget _buildFileIcon(FileSystemEntity entity, bool isDirectory, bool isImageFile) {
+    if (isDirectory) {
+      return Icon(
+        Icons.folder,
+        color: Colors.blue,
+        size: 32,
+      );
+    }
+    
+    if (isImageFile && entity is File) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: Image.file(
+            entity,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Icon(
+                Icons.broken_image,
+                color: Colors.grey,
+                size: 32,
+              );
+            },
+          ),
+        ),
+      );
+    }
+    
+    return Icon(
+      Icons.insert_drive_file,
+      color: Colors.grey,
+      size: 32,
+    );
+  }
+
   void _onEntityTap(FileSystemEntity entity) {
     if (entity is Directory) {
       _loadDirectory(entity);
@@ -214,30 +251,44 @@ class _MyHomePageState extends State<MyHomePage> {
 
                             final isImageFile = !isDirectory && 
                                 entity is File && _isImageFile(entity);
+                            final isSelected = _selectedImage != null && 
+                                entity is File && 
+                                entity.path == _selectedImage!.path;
                             
-                            return ListTile(
-                              leading: Icon(
-                                isDirectory
-                                    ? Icons.folder
-                                    : isImageFile
-                                        ? Icons.image
-                                        : Icons.insert_drive_file,
-                                color: isDirectory
-                                    ? Colors.blue
-                                    : isImageFile
-                                        ? Colors.green
-                                        : Colors.grey,
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: isSelected 
+                                    ? Theme.of(context).colorScheme.primaryContainer
+                                    : null,
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              title: Text(
-                                name,
-                                style: TextStyle(
-                                  fontWeight: isDirectory
-                                      ? FontWeight.w500
-                                      : FontWeight.normal,
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              child: ListTile(
+                                leading: _buildFileIcon(entity, isDirectory, isImageFile),
+                                title: Text(
+                                  name,
+                                  style: TextStyle(
+                                    fontWeight: isDirectory
+                                        ? FontWeight.w500
+                                        : FontWeight.normal,
+                                    color: isSelected
+                                        ? Theme.of(context).colorScheme.onPrimaryContainer
+                                        : null,
+                                  ),
+                                ),
+                                onTap: () => _onEntityTap(entity),
+                                dense: false,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 4,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
-                              onTap: () => _onEntityTap(entity),
-                              dense: true,
                             );
                           },
                         ),
