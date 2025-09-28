@@ -447,41 +447,6 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                             ),
                           ),
-                            ],
-                          ),
-                        ),
-                        // Navigation controls
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
-                              onPressed: _currentImageIndex > 0 ? _navigateToPreviousImage : null,
-                              icon: const Icon(Icons.arrow_back_ios),
-                              tooltip: 'Previous image',
-                            ),
-                            const SizedBox(width: 16),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Text(
-                                '${_currentImageIndex + 1} / ${_imageFiles.length}',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              onPressed: _currentImageIndex < _imageFiles.length - 1 ? _navigateToNextImage : null,
-                              icon: const Icon(Icons.arrow_forward_ios),
-                              tooltip: 'Next image',
-                            ),
-                          ],
                         ),
                       ],
                     )
