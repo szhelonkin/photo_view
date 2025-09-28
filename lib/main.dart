@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:path/path.dart' as path;
+import 'package:flutter_svg/flutter_svg.dart';
 
 void main() {
   runApp(const MyApp());
@@ -120,6 +121,11 @@ class _MyHomePageState extends State<MyHomePage> {
     final extension = path.extension(file.path).toLowerCase();
     return _imageExtensions.contains(extension);
   }
+  
+  bool _isSvgFile(File file) {
+    final extension = path.extension(file.path).toLowerCase();
+    return extension == '.svg';
+  }
 
   Widget _buildFileIcon(FileSystemEntity entity, bool isDirectory, bool isImageFile) {
     if (isDirectory) {
@@ -131,24 +137,43 @@ class _MyHomePageState extends State<MyHomePage> {
     }
     
     if (isImageFile && entity is File) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: SizedBox(
-          width: 32,
-          height: 32,
-          child: Image.file(
-            entity,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              return Icon(
-                Icons.broken_image,
+      if (_isSvgFile(entity)) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: SvgPicture.file(
+              entity,
+              fit: BoxFit.cover,
+              placeholderBuilder: (context) => Icon(
+                Icons.image,
                 color: Colors.grey,
-                size: 32,
-              );
-            },
+                size: 24,
+              ),
+            ),
           ),
-        ),
-      );
+        );
+      } else {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Image.file(
+              entity,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Icon(
+                  Icons.broken_image,
+                  color: Colors.grey,
+                  size: 32,
+                );
+              },
+            ),
+          ),
+        );
+      }
     }
     
     return Icon(
@@ -343,7 +368,23 @@ class _MyHomePageState extends State<MyHomePage> {
                               boundaryMargin: const EdgeInsets.all(20),
                               minScale: 0.5,
                               maxScale: 4.0,
-                              child: Image.file(
+                              child: _isSvgFile(_selectedImage!)
+                                  ? SvgPicture.file(
+                                      _selectedImage!,
+                                      fit: BoxFit.contain,
+                                      placeholderBuilder: (context) => Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          CircularProgressIndicator(),
+                                          const SizedBox(height: 16),
+                                          Text(
+                                            'Loading SVG...',
+                                            style: Theme.of(context).textTheme.bodyMedium,
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  : Image.file(
                                 _selectedImage!,
                                 fit: BoxFit.contain,
                                 errorBuilder: (context, error, stackTrace) {
