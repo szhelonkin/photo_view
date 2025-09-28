@@ -17,6 +17,6 @@ void main() {
     // Verify that file explorer is displayed.
     expect(find.text('File Explorer'), findsWidgets);
     expect(find.text('Photo View'), findsOneWidget);
-    expect(find.text('Select a directory from the file explorer to browse photos'), findsOneWidget);
+    expect(find.text('Select an image from the file explorer to view it here'), findsOneWidget);
   });
 }

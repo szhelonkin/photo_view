@@ -59,6 +59,11 @@ class _MyHomePageState extends State<MyHomePage> {
   Directory? _currentDirectory;
   List<FileSystemEntity> _entities = [];
   bool _isLoading = true;
+  File? _selectedImage;
+  
+  static const List<String> _imageExtensions = [
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
+  ];
 
   @override
   void initState() {
@@ -111,9 +116,18 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  bool _isImageFile(File file) {
+    final extension = path.extension(file.path).toLowerCase();
+    return _imageExtensions.contains(extension);
+  }
+
   void _onEntityTap(FileSystemEntity entity) {
     if (entity is Directory) {
       _loadDirectory(entity);
+    } else if (entity is File && _isImageFile(entity)) {
+      setState(() {
+        _selectedImage = entity;
+      });
     }
   }
 
@@ -198,14 +212,21 @@ class _MyHomePageState extends State<MyHomePage> {
                             final isDirectory = entity is Directory;
                             final name = path.basename(entity.path);
 
+                            final isImageFile = !isDirectory && 
+                                entity is File && _isImageFile(entity);
+                            
                             return ListTile(
                               leading: Icon(
                                 isDirectory
                                     ? Icons.folder
-                                    : Icons.insert_drive_file,
+                                    : isImageFile
+                                        ? Icons.image
+                                        : Icons.insert_drive_file,
                                 color: isDirectory
                                     ? Colors.blue
-                                    : Colors.grey,
+                                    : isImageFile
+                                        ? Colors.green
+                                        : Colors.grey,
                               ),
                               title: Text(
                                 name,
@@ -227,29 +248,105 @@ class _MyHomePageState extends State<MyHomePage> {
           Expanded(
             child: Container(
               padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.photo_library,
-                      size: 64,
-                      color: Theme.of(context).colorScheme.primary,
+              child: _selectedImage != null
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.image,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  path.basename(_selectedImage!.path),
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedImage = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.close),
+                                tooltip: 'Close image',
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child: Center(
+                            child: InteractiveViewer(
+                              panEnabled: true,
+                              boundaryMargin: const EdgeInsets.all(20),
+                              minScale: 0.5,
+                              maxScale: 4.0,
+                              child: Image.file(
+                                _selectedImage!,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.error_outline,
+                                        size: 64,
+                                        color: Theme.of(context).colorScheme.error,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'Error loading image',
+                                        style: Theme.of(context).textTheme.titleMedium,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        error.toString(),
+                                        style: Theme.of(context).textTheme.bodySmall,
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.photo_library,
+                            size: 64,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Photo View',
+                            style: Theme.of(context).textTheme.headlineMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Select an image from the file explorer to view it here',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Photo View',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Select a directory from the file explorer to browse photos',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
         ],
