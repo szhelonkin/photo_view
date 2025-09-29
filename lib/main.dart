@@ -69,6 +69,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _showHiddenFiles = false;
   bool _sortNewestFirst = true;
   Directory? _currentGalleryDirectory;
+  bool _galleryLoadCompleted = false;
   final ScrollController _galleryScrollController = ScrollController();
   bool _isSelectionMode = false;
   final Set<File> _selectedImages = {};
@@ -138,6 +139,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _allGalleryImages.clear();
         _currentGalleryDirectory = null;
         _isLoadingGallery = false;
+        _galleryLoadCompleted = false;
         // Reset selection mode when changing directory
         _isSelectionMode = false;
         _selectedImages.clear();
@@ -238,7 +240,7 @@ class _MyHomePageState extends State<MyHomePage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Скопировано ${_selectedImages.length} изображений'),
+              content: Text('Copied ${_selectedImages.length} images'),
               backgroundColor: Colors.green,
             ),
           );
@@ -253,7 +255,7 @@ class _MyHomePageState extends State<MyHomePage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Ошибка копирования: $e'),
+              content: Text('Copy error: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -287,6 +289,59 @@ class _MyHomePageState extends State<MyHomePage> {
       _showPreview = false;
       _previewImage = null;
     });
+  }
+
+  Future<void> _createNewFolder() async {
+    if (_currentDirectory == null) return;
+
+    final folderName = await showDialog<String>(
+      context: context,
+      builder: (context) => _CreateFolderDialog(),
+    );
+
+    if (folderName != null && folderName.trim().isNotEmpty) {
+      try {
+        final newFolderPath = path.join(_currentDirectory!.path, folderName.trim());
+        final newFolder = Directory(newFolderPath);
+        
+        // Проверяем, что папка не существует
+        if (await newFolder.exists()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Folder "$folderName" already exists'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+
+        // Создаем папку
+        await newFolder.create();
+        
+        // Обновляем список файлов
+        await _loadDirectory(_currentDirectory!);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Folder "$folderName" created'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error creating folder: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Widget _buildImagePreview() {
@@ -607,6 +662,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (_currentGalleryDirectory?.path == directory.path) {
       setState(() {
         _isLoadingGallery = false;
+        _galleryLoadCompleted = true;
       });
       
       // Final sort to ensure everything is in correct order
@@ -617,7 +673,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
 
   Widget _buildOptimizedGallery() {
-    if (_allGalleryImages.isEmpty && !_isLoadingGallery) {
+    if (_allGalleryImages.isEmpty && !_isLoadingGallery && !_galleryLoadCompleted) {
       _loadGalleryImages(_currentDirectory!);
     }
 
@@ -979,9 +1035,21 @@ class _MyHomePageState extends State<MyHomePage> {
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   ),
-                  child: Text(
-                    'File Explorer',
-                    style: Theme.of(context).textTheme.titleMedium,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'File Explorer',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      if (_currentDirectory != null)
+                        IconButton(
+                          onPressed: _createNewFolder,
+                          icon: const Icon(Icons.create_new_folder),
+                          tooltip: 'Create new folder',
+                          iconSize: 20,
+                        ),
+                    ],
                   ),
                 ),
                 if (_currentDirectory != null)
@@ -1318,7 +1386,7 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Выберите папку для копирования'),
+      title: const Text('Select Folder for Copy'),
       content: SizedBox(
         width: 400,
         height: 500,
@@ -1338,7 +1406,7 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
                         ? _navigateToParent 
                         : null,
                     icon: const Icon(Icons.arrow_upward),
-                    tooltip: 'Вверх',
+                    tooltip: 'Up',
                   ),
                   Expanded(
                     child: Text(
@@ -1357,7 +1425,7 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
                   ? const Center(child: CircularProgressIndicator())
                   : _directories.isEmpty
                       ? const Center(
-                          child: Text('Нет доступных папок'),
+                          child: Text('No available folders'),
                         )
                       : ListView.builder(
                           itemCount: _directories.length,
@@ -1380,11 +1448,97 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Отмена'),
+          child: const Text('Cancel'),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_currentDirectory),
-          child: const Text('Выбрать эту папку'),
+          child: const Text('Select This Folder'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CreateFolderDialog extends StatefulWidget {
+  @override
+  State<_CreateFolderDialog> createState() => _CreateFolderDialogState();
+}
+
+class _CreateFolderDialogState extends State<_CreateFolderDialog> {
+  final TextEditingController _controller = TextEditingController();
+  bool _isValid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_validateInput);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _validateInput() {
+    final text = _controller.text.trim();
+    final isValidName = text.isNotEmpty && 
+        !text.contains('/') && 
+        !text.contains('\\') && 
+        !text.contains(':') && 
+        !text.contains('*') && 
+        !text.contains('?') && 
+        !text.contains('"') && 
+        !text.contains('<') && 
+        !text.contains('>') && 
+        !text.contains('|');
+    
+    setState(() {
+      _isValid = isValidName;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Create New Folder'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Folder name',
+              hintText: 'Enter new folder name',
+              errorText: _controller.text.isNotEmpty && !_isValid 
+                  ? 'Invalid characters in folder name' 
+                  : null,
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (value) {
+              if (_isValid) {
+                Navigator.of(context).pop(value.trim());
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Invalid characters: / \\ : * ? " < > |',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _isValid ? () => Navigator.of(context).pop(_controller.text.trim()) : null,
+          child: const Text('Create'),
         ),
       ],
     );
