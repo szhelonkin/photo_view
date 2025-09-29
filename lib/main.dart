@@ -67,6 +67,7 @@ class _MyHomePageState extends State<MyHomePage> {
   final List<File> _allGalleryImages = [];
   bool _isLoadingGallery = false;
   bool _showHiddenFiles = false;
+  bool _sortNewestFirst = true;
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -154,6 +155,16 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isHiddenFile(FileSystemEntity entity) {
     final name = path.basename(entity.path);
     return name.startsWith('.');
+  }
+
+  void _sortGalleryImages() {
+    _allGalleryImages.sort((a, b) {
+      final aModified = a.lastModifiedSync();
+      final bModified = b.lastModifiedSync();
+      return _sortNewestFirst 
+          ? bModified.compareTo(aModified) // Новые сначала
+          : aModified.compareTo(bModified); // Старые сначала
+    });
   }
 
   Widget _buildFileIcon(FileSystemEntity entity, bool isDirectory, bool isImageFile) {
@@ -269,6 +280,9 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _isLoadingGallery = false;
     });
+    
+    // Sort images after loading
+    _sortGalleryImages();
   }
 
 
@@ -301,12 +315,28 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ],
               ),
-              if (_isLoadingGallery)
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!_isLoadingGallery && _allGalleryImages.isNotEmpty)
+                    IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _sortNewestFirst = !_sortNewestFirst;
+                          _sortGalleryImages();
+                        });
+                      },
+                      icon: Icon(_sortNewestFirst ? Icons.schedule : Icons.history),
+                      tooltip: _sortNewestFirst ? 'Sort oldest first' : 'Sort newest first',
+                    ),
+                  if (_isLoadingGallery)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                ],
+              ),
             ],
           ),
         ),
