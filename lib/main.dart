@@ -68,6 +68,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isLoadingGallery = false;
   bool _showHiddenFiles = false;
   bool _sortNewestFirst = true;
+  Directory? _currentGalleryDirectory;
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -124,6 +125,8 @@ class _MyHomePageState extends State<MyHomePage> {
         _currentImageIndex = -1;
         // Reset gallery when changing directory
         _allGalleryImages.clear();
+        _currentGalleryDirectory = null;
+        _isLoadingGallery = false;
       });
     } catch (e) {
       setState(() {
@@ -254,15 +257,23 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _loadGalleryImages(Directory directory) async {
-    if (_isLoadingGallery) return;
+    // If already loading the same directory, don't start again
+    if (_isLoadingGallery && _currentGalleryDirectory?.path == directory.path) return;
     
     setState(() {
       _isLoadingGallery = true;
       _allGalleryImages.clear();
+      _currentGalleryDirectory = directory;
     });
 
     try {
       await for (FileSystemEntity entity in directory.list(recursive: true, followLinks: false)) {
+        // Check if we're still loading the same directory
+        if (_currentGalleryDirectory?.path != directory.path) {
+          // Directory changed, stop loading
+          return;
+        }
+        
         if (entity is File && _isImageFile(entity)) {
           // Filter hidden files if needed
           if (_showHiddenFiles || !_isHiddenFile(entity)) {
@@ -277,12 +288,15 @@ class _MyHomePageState extends State<MyHomePage> {
       debugPrint('Error discovering images: $e');
     }
     
-    setState(() {
-      _isLoadingGallery = false;
-    });
-    
-    // Sort images after loading
-    _sortGalleryImages();
+    // Only update state if we're still loading the same directory
+    if (_currentGalleryDirectory?.path == directory.path) {
+      setState(() {
+        _isLoadingGallery = false;
+      });
+      
+      // Sort images after loading
+      _sortGalleryImages();
+    }
   }
 
 
