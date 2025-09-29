@@ -176,11 +176,31 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _sortGalleryImages() {
     _allGalleryImages.sort((a, b) {
-      final aModified = a.lastModifiedSync();
-      final bModified = b.lastModifiedSync();
-      return _sortNewestFirst 
-          ? bModified.compareTo(aModified) // Новые сначала
-          : aModified.compareTo(bModified); // Старые сначала
+      try {
+        // Используем statSync для более точной информации о файле
+        final aStat = a.statSync();
+        final bStat = b.statSync();
+        
+        // Используем modified time (время изменения файла)
+        final aModified = aStat.modified;
+        final bModified = bStat.modified;
+        
+        return _sortNewestFirst 
+            ? bModified.compareTo(aModified) // Новые сначала
+            : aModified.compareTo(bModified); // Старые сначала
+      } catch (e) {
+        // Fallback к старому методу в случае ошибки
+        try {
+          final aModified = a.lastModifiedSync();
+          final bModified = b.lastModifiedSync();
+          return _sortNewestFirst 
+              ? bModified.compareTo(aModified)
+              : aModified.compareTo(bModified);
+        } catch (e2) {
+          // Если и это не работает, сортируем по имени
+          return path.basename(a.path).compareTo(path.basename(b.path));
+        }
+      }
     });
   }
 
@@ -562,6 +582,9 @@ class _MyHomePageState extends State<MyHomePage> {
               _allGalleryImages.addAll(batch);
               batch.clear();
               
+              // Sort after adding each batch so user sees correctly ordered images
+              _sortGalleryImages();
+              
               // Update UI and yield to prevent blocking
               setState(() {});
               await Future.delayed(const Duration(milliseconds: 1));
@@ -573,6 +596,8 @@ class _MyHomePageState extends State<MyHomePage> {
       // Add remaining files
       if (batch.isNotEmpty) {
         _allGalleryImages.addAll(batch);
+        // Sort the final batch too
+        _sortGalleryImages();
       }
     } catch (e) {
       debugPrint('Error discovering images: $e');
@@ -584,7 +609,8 @@ class _MyHomePageState extends State<MyHomePage> {
         _isLoadingGallery = false;
       });
       
-      // Sort images after loading
+      // Final sort to ensure everything is in correct order
+      // (though images should already be sorted from batches)
       _sortGalleryImages();
     }
   }
