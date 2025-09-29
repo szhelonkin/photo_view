@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:async';
 import 'package:path/path.dart' as path;
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -33,7 +34,7 @@ class MyApp extends StatelessWidget {
         // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const MyHomePage(title: 'File Explorer'),
+      home: const MyHomePage(title: 'Photo View'),
     );
   }
 }
@@ -63,6 +64,9 @@ class _MyHomePageState extends State<MyHomePage> {
   File? _selectedImage;
   List<File> _imageFiles = [];
   int _currentImageIndex = -1;
+  final List<File> _allGalleryImages = [];
+  bool _isLoadingGallery = false;
+  bool _showHiddenFiles = false;
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -89,7 +93,13 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
-      final entities = await directory.list().toList();
+      final allEntities = await directory.list().toList();
+      
+      // Filter hidden files if needed
+      final entities = allEntities.where((entity) {
+        return _showHiddenFiles || !_isHiddenFile(entity);
+      }).toList();
+      
       entities.sort((a, b) {
         if (a is Directory && b is! Directory) return -1;
         if (a is! Directory && b is Directory) return 1;
@@ -111,6 +121,8 @@ class _MyHomePageState extends State<MyHomePage> {
         // Reset selection when changing directory
         _selectedImage = null;
         _currentImageIndex = -1;
+        // Reset gallery when changing directory
+        _allGalleryImages.clear();
       });
     } catch (e) {
       setState(() {
@@ -139,6 +151,11 @@ class _MyHomePageState extends State<MyHomePage> {
     return extension == '.svg';
   }
 
+  bool _isHiddenFile(FileSystemEntity entity) {
+    final name = path.basename(entity.path);
+    return name.startsWith('.');
+  }
+
   Widget _buildFileIcon(FileSystemEntity entity, bool isDirectory, bool isImageFile) {
     if (isDirectory) {
       return Icon(
@@ -149,43 +166,43 @@ class _MyHomePageState extends State<MyHomePage> {
     }
     
     if (isImageFile && entity is File) {
-      if (_isSvgFile(entity)) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(4),
+      return Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
           child: SizedBox(
             width: 32,
             height: 32,
-            child: SvgPicture.file(
-              entity,
-              fit: BoxFit.cover,
-              placeholderBuilder: (context) => Icon(
-                Icons.image,
-                color: Colors.grey,
-                size: 24,
-              ),
-            ),
+            child: _isSvgFile(entity)
+                ? SvgPicture.file(
+                    entity,
+                    fit: BoxFit.contain,
+                    placeholderBuilder: (context) => Icon(
+                      Icons.image,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 20,
+                    ),
+                  )
+                : Image.file(
+                    entity,
+                    fit: BoxFit.contain,
+                    cacheWidth: 64,
+                    cacheHeight: 64,
+                    filterQuality: FilterQuality.low,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Icon(
+                        Icons.broken_image,
+                        color: Colors.grey,
+                        size: 20,
+                      );
+                    },
+                  ),
           ),
-        );
-      } else {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: Image.file(
-              entity,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Icon(
-                  Icons.broken_image,
-                  color: Colors.grey,
-                  size: 32,
-                );
-              },
-            ),
-          ),
-        );
-      }
+        ),
+      );
     }
     
     return Icon(
@@ -225,18 +242,126 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  Future<List<File>> _discoverAllImages(Directory directory) async {
-    List<File> allImages = [];
+  Future<void> _loadGalleryImages(Directory directory) async {
+    if (_isLoadingGallery) return;
+    
+    setState(() {
+      _isLoadingGallery = true;
+      _allGalleryImages.clear();
+    });
+
     try {
       await for (FileSystemEntity entity in directory.list(recursive: true, followLinks: false)) {
         if (entity is File && _isImageFile(entity)) {
-          allImages.add(entity);
+          // Filter hidden files if needed
+          if (_showHiddenFiles || !_isHiddenFile(entity)) {
+            _allGalleryImages.add(entity);
+            if (_allGalleryImages.length % 20 == 0) {
+              setState(() {});
+            }
+          }
         }
       }
     } catch (e) {
       debugPrint('Error discovering images: $e');
     }
-    return allImages;
+    
+    setState(() {
+      _isLoadingGallery = false;
+    });
+  }
+
+
+  Widget _buildOptimizedGallery() {
+    if (_allGalleryImages.isEmpty && !_isLoadingGallery) {
+      _loadGalleryImages(_currentDirectory!);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Gallery',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _isLoadingGallery 
+                        ? 'Scanning for images...'
+                        : '${_allGalleryImages.length} images found',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+              if (_isLoadingGallery)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _allGalleryImages.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_isLoadingGallery) ...[
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Scanning for images...',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ] else ...[
+                        Icon(
+                          Icons.photo_library,
+                          size: 64,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No images found',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ],
+                  ),
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final itemSize = 180.0;
+                    final crossAxisCount = (constraints.maxWidth / (itemSize + 12)).floor().clamp(1, 10);
+                    
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 1.0,
+                      ),
+                      itemCount: _allGalleryImages.length,
+                      itemBuilder: (context, index) {
+                        final imageFile = _allGalleryImages[index];
+                        return _buildGalleryThumbnail(imageFile);
+                      },
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
   }
 
   Widget _buildGalleryThumbnail(File imageFile) {
@@ -250,43 +375,81 @@ class _MyHomePageState extends State<MyHomePage> {
       },
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: Theme.of(context).dividerColor,
-            width: 1,
-          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+          color: Theme.of(context).colorScheme.surface,
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: _isSvgFile(imageFile)
-              ? SvgPicture.file(
-                  imageFile,
-                  fit: BoxFit.cover,
-                  placeholderBuilder: (context) => Container(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    child: Icon(
-                      Icons.image,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                )
-              : Image.file(
-                  imageFile,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child: Icon(
-                        Icons.broken_image,
-                        color: Theme.of(context).colorScheme.error,
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            children: [
+              Container(
+                width: double.infinity,
+                height: double.infinity,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              ),
+              Positioned.fill(
+                child: _isSvgFile(imageFile)
+                    ? ClipRect(
+                        child: SvgPicture.file(
+                          imageFile,
+                          fit: BoxFit.cover,
+                          placeholderBuilder: (context) => Center(
+                            child: Icon(
+                              Icons.image,
+                              color: Theme.of(context).colorScheme.primary,
+                              size: 32,
+                            ),
+                          ),
+                        ),
+                      )
+                    : Container(
+                        decoration: BoxDecoration(
+                          image: DecorationImage(
+                            image: FileImage(imageFile),
+                            fit: BoxFit.cover,
+                            alignment: Alignment.center,
+                            onError: (error, stackTrace) {},
+                          ),
+                        ),
+                        child: Container(), // Пустой контейнер для показа ошибки
                       ),
-                    );
-                  },
+              ),
+              Positioned(
+                bottom: 4,
+                left: 4,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    path.basename(imageFile.path),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -296,6 +459,16 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(widget.title),
         actions: [
           if (_currentDirectory != null) ...[
+            IconButton(
+              onPressed: () {
+                setState(() {
+                  _showHiddenFiles = !_showHiddenFiles;
+                });
+                _loadDirectory(_currentDirectory!);
+              },
+              icon: Icon(_showHiddenFiles ? Icons.visibility_off : Icons.visibility),
+              tooltip: _showHiddenFiles ? 'Hide hidden files' : 'Show hidden files',
+            ),
             IconButton(
               onPressed: _loadHomeDirectory,
               icon: const Icon(Icons.home),
@@ -437,10 +610,24 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: Text(
-                                  path.basename(_selectedImage!.path),
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                  overflow: TextOverflow.ellipsis,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      path.basename(_selectedImage!.path),
+                                      style: Theme.of(context).textTheme.titleMedium,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _selectedImage!.path,
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
                                 ),
                               ),
                               IconButton(
@@ -549,102 +736,8 @@ class _MyHomePageState extends State<MyHomePage> {
                       ],
                     )
                   : _currentDirectory != null
-                      ? FutureBuilder<List<File>>(
-                          future: _discoverAllImages(_currentDirectory!),
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(
-                                child: CircularProgressIndicator(),
-                              );
-                            }
-                            
-                            if (snapshot.hasError) {
-                              return Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.error_outline,
-                                      size: 64,
-                                      color: Theme.of(context).colorScheme.error,
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      'Error loading gallery',
-                                      style: Theme.of(context).textTheme.titleMedium,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-                            
-                            final allImages = snapshot.data ?? [];
-                            
-                            if (allImages.isEmpty) {
-                              return Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.photo_library,
-                                      size: 64,
-                                      color: Theme.of(context).colorScheme.primary,
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      'No Images Found',
-                                      style: Theme.of(context).textTheme.headlineMedium,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'This directory and its subdirectories contain no images',
-                                      style: Theme.of(context).textTheme.bodyMedium,
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-                            
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Gallery',
-                                        style: Theme.of(context).textTheme.headlineMedium,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        '${allImages.length} images found',
-                                        style: Theme.of(context).textTheme.bodyMedium,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Expanded(
-                                  child: GridView.builder(
-                                    padding: const EdgeInsets.all(16),
-                                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: 4,
-                                      crossAxisSpacing: 8,
-                                      mainAxisSpacing: 8,
-                                      childAspectRatio: 1,
-                                    ),
-                                    itemCount: allImages.length,
-                                    itemBuilder: (context, index) {
-                                      return _buildGalleryThumbnail(allImages[index]);
-                                    },
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        )
+                      ? _buildOptimizedGallery()
+                      
                       : Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
