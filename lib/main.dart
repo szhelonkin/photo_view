@@ -70,6 +70,10 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _sortNewestFirst = true;
   Directory? _currentGalleryDirectory;
   final ScrollController _galleryScrollController = ScrollController();
+  bool _isSelectionMode = false;
+  final Set<File> _selectedImages = {};
+  File? _previewImage;
+  bool _showPreview = false;
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -134,6 +138,9 @@ class _MyHomePageState extends State<MyHomePage> {
         _allGalleryImages.clear();
         _currentGalleryDirectory = null;
         _isLoadingGallery = false;
+        // Reset selection mode when changing directory
+        _isSelectionMode = false;
+        _selectedImages.clear();
       });
     } catch (e) {
       setState(() {
@@ -187,6 +194,156 @@ class _MyHomePageState extends State<MyHomePage> {
     if (index < 0) return Platform.pathSeparator;
     final pathParts = segments.sublist(0, index + 1);
     return Platform.pathSeparator + pathParts.join(Platform.pathSeparator);
+  }
+
+  Future<void> _copySelectedImages() async {
+    if (_selectedImages.isEmpty) return;
+
+    // Показать диалог выбора папки
+    final result = await showDialog<Directory>(
+      context: context,
+      builder: (context) => _FolderPickerDialog(currentDirectory: _currentDirectory!),
+    );
+
+    if (result != null) {
+      try {
+        // Копировать файлы
+        for (final file in _selectedImages) {
+          final fileName = path.basename(file.path);
+          final newPath = path.join(result.path, fileName);
+          await file.copy(newPath);
+        }
+
+        // Показать уведомление об успехе
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Скопировано ${_selectedImages.length} изображений'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+
+        // Выйти из режима выбора
+        setState(() {
+          _isSelectionMode = false;
+          _selectedImages.clear();
+        });
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Ошибка копирования: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _selectAllImages() {
+    setState(() {
+      _selectedImages.addAll(_allGalleryImages);
+    });
+  }
+
+  void _cancelSelection() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedImages.clear();
+    });
+  }
+
+  void _showImagePreview(File imageFile) {
+    setState(() {
+      _previewImage = imageFile;
+      _showPreview = true;
+    });
+  }
+
+  void _hideImagePreview() {
+    setState(() {
+      _showPreview = false;
+      _previewImage = null;
+    });
+  }
+
+  Widget _buildImagePreview() {
+    if (_previewImage == null) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event.logicalKey.keyLabel == 'Escape') {
+            _hideImagePreview();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: GestureDetector(
+          onTap: _hideImagePreview,
+          child: Container(
+          color: Colors.black.withValues(alpha: 0.8),
+          child: Center(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.7,
+              maxHeight: MediaQuery.of(context).size.height * 0.7,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: _isSvgFile(_previewImage!)
+                  ? SvgPicture.file(
+                      _previewImage!,
+                      fit: BoxFit.contain,
+                      placeholderBuilder: (context) => const Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : Image.file(
+                      _previewImage!,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 48,
+                                color: Colors.red,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Ошибка загрузки изображения',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+        ),
+        ),
+        ),
+      ),
+    );
   }
 
   void _scrollToImageInGallery(File imageFile) {
@@ -465,17 +622,40 @@ class _MyHomePageState extends State<MyHomePage> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!_isLoadingGallery && _allGalleryImages.isNotEmpty)
-                    IconButton(
-                      onPressed: () {
-                        setState(() {
-                          _sortNewestFirst = !_sortNewestFirst;
-                          _sortGalleryImages();
-                        });
-                      },
-                      icon: Icon(_sortNewestFirst ? Icons.schedule : Icons.history),
-                      tooltip: _sortNewestFirst ? 'Sort oldest first' : 'Sort newest first',
+                  if (_isSelectionMode) ...[
+                    Text(
+                      '${_selectedImages.length} selected',
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: _selectAllImages,
+                      icon: const Icon(Icons.select_all),
+                      tooltip: 'Select all',
+                    ),
+                    IconButton(
+                      onPressed: _selectedImages.isNotEmpty ? _copySelectedImages : null,
+                      icon: const Icon(Icons.copy),
+                      tooltip: 'Copy selected',
+                    ),
+                    IconButton(
+                      onPressed: _cancelSelection,
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Cancel selection',
+                    ),
+                  ] else ...[
+                    if (!_isLoadingGallery && _allGalleryImages.isNotEmpty)
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _sortNewestFirst = !_sortNewestFirst;
+                            _sortGalleryImages();
+                          });
+                        },
+                        icon: Icon(_sortNewestFirst ? Icons.schedule : Icons.history),
+                        tooltip: _sortNewestFirst ? 'Sort oldest first' : 'Sort newest first',
+                      ),
+                  ],
                   if (_isLoadingGallery)
                     const SizedBox(
                       width: 20,
@@ -549,22 +729,62 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildGalleryThumbnail(File imageFile) {
-    return GestureDetector(
-      onTap: () {
-        final index = _imageFiles.indexOf(imageFile);
-        setState(() {
-          _selectedImage = imageFile;
-          _currentImageIndex = index >= 0 ? index : 0;
-        });
-        
-        // Через небольшую задержку прокрутить к изображению при возврате
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToImageInGallery(imageFile);
-        });
+    final isSelected = _selectedImages.contains(imageFile);
+    
+    return Listener(
+      onPointerDown: (PointerDownEvent event) {
+        if (event.buttons == 2) { // Правая кнопка мыши
+          _showImagePreview(imageFile);
+        }
       },
-      child: Container(
+      onPointerUp: (PointerUpEvent event) {
+        if (event.buttons == 0 && _showPreview) { // Отпускание любой кнопки
+          _hideImagePreview();
+        }
+      },
+      child: GestureDetector(
+        onTap: () {
+          if (_isSelectionMode) {
+            // В режиме выбора - добавить/убрать из выбранных
+            setState(() {
+              if (isSelected) {
+                _selectedImages.remove(imageFile);
+              } else {
+                _selectedImages.add(imageFile);
+              }
+            });
+          } else {
+            // Обычный режим - открыть просмотрщик
+            final index = _imageFiles.indexOf(imageFile);
+            setState(() {
+              _selectedImage = imageFile;
+              _currentImageIndex = index >= 0 ? index : 0;
+            });
+            
+            // Через небольшую задержку прокрутить к изображению при возврате
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _scrollToImageInGallery(imageFile);
+            });
+          }
+        },
+        onLongPress: () {
+          // Долгое нажатие включает режим выбора
+          if (!_isSelectionMode) {
+            setState(() {
+              _isSelectionMode = true;
+              _selectedImages.add(imageFile);
+            });
+          }
+        },
+        child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
+          border: isSelected
+              ? Border.all(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 3,
+                )
+              : null,
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.1),
@@ -636,8 +856,45 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
+              // Добавляем индикатор выбора
+              if (isSelected)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.check,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              // Показываем номер в режиме выбора
+              if (_isSelectionMode && !isSelected)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.radio_button_unchecked,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
             ],
           ),
+        ),
         ),
       ),
     );
@@ -931,7 +1188,13 @@ class _MyHomePageState extends State<MyHomePage> {
                       ],
                     )
                   : _currentDirectory != null
-                      ? _buildOptimizedGallery()
+                      ? Stack(
+                          children: [
+                            _buildOptimizedGallery(),
+                            if (_showPreview && _previewImage != null)
+                              _buildImagePreview(),
+                          ],
+                        )
                       
                       : Center(
                           child: Column(
@@ -960,6 +1223,144 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _FolderPickerDialog extends StatefulWidget {
+  final Directory currentDirectory;
+
+  const _FolderPickerDialog({required this.currentDirectory});
+
+  @override
+  State<_FolderPickerDialog> createState() => _FolderPickerDialogState();
+}
+
+class _FolderPickerDialogState extends State<_FolderPickerDialog> {
+  late Directory _currentDirectory;
+  List<Directory> _directories = [];
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentDirectory = widget.currentDirectory;
+    _loadDirectories();
+  }
+
+  Future<void> _loadDirectories() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final entities = await _currentDirectory.list().toList();
+      final directories = entities
+          .whereType<Directory>()
+          .where((dir) => !path.basename(dir.path).startsWith('.'))
+          .toList();
+      
+      directories.sort((a, b) => path.basename(a.path)
+          .toLowerCase()
+          .compareTo(path.basename(b.path).toLowerCase()));
+
+      setState(() {
+        _directories = directories;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _navigateToDirectory(Directory directory) {
+    setState(() {
+      _currentDirectory = directory;
+    });
+    _loadDirectories();
+  }
+
+  void _navigateToParent() {
+    final parent = _currentDirectory.parent;
+    if (parent.path != _currentDirectory.path) {
+      _navigateToDirectory(parent);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Выберите папку для копирования'),
+      content: SizedBox(
+        width: 400,
+        height: 500,
+        child: Column(
+          children: [
+            // Путь и кнопка "Вверх"
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: _currentDirectory.parent.path != _currentDirectory.path 
+                        ? _navigateToParent 
+                        : null,
+                    icon: const Icon(Icons.arrow_upward),
+                    tooltip: 'Вверх',
+                  ),
+                  Expanded(
+                    child: Text(
+                      _currentDirectory.path,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Список папок
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _directories.isEmpty
+                      ? const Center(
+                          child: Text('Нет доступных папок'),
+                        )
+                      : ListView.builder(
+                          itemCount: _directories.length,
+                          itemBuilder: (context, index) {
+                            final directory = _directories[index];
+                            final name = path.basename(directory.path);
+                            
+                            return ListTile(
+                              leading: const Icon(Icons.folder, color: Colors.blue),
+                              title: Text(name),
+                              onTap: () => _navigateToDirectory(directory),
+                              dense: true,
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_currentDirectory),
+          child: const Text('Выбрать эту папку'),
+        ),
+      ],
     );
   }
 }
