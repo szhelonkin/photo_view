@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:path/path.dart' as path;
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:exif/exif.dart';
 
 void main() {
   runApp(const MyApp());
@@ -68,6 +69,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isLoadingGallery = false;
   bool _showHiddenFiles = false;
   bool _sortNewestFirst = true;
+  bool _sortByExifDate = false;
   Directory? _currentGalleryDirectory;
   bool _galleryLoadCompleted = false;
   final ScrollController _galleryScrollController = ScrollController();
@@ -75,6 +77,10 @@ class _MyHomePageState extends State<MyHomePage> {
   final Set<File> _selectedImages = {};
   File? _previewImage;
   bool _showPreview = false;
+  
+  // Кэш для EXIF-дат
+  final Map<String, DateTime?> _exifDateCache = {};
+  bool _isSortingByExif = false;
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -143,6 +149,8 @@ class _MyHomePageState extends State<MyHomePage> {
         // Reset selection mode when changing directory
         _isSelectionMode = false;
         _selectedImages.clear();
+        // Clear EXIF cache when changing directory
+        _exifDateCache.clear();
       });
     } catch (e) {
       setState(() {
@@ -174,6 +182,64 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isHiddenFile(FileSystemEntity entity) {
     final name = path.basename(entity.path);
     return name.startsWith('.');
+  }
+
+  Future<DateTime?> _getExifDateTime(File file) async {
+    final filePath = file.path;
+    
+    // Проверяем кэш сначала
+    if (_exifDateCache.containsKey(filePath)) {
+      return _exifDateCache[filePath];
+    }
+    
+    // Только для JPEG файлов - другие форматы редко содержат EXIF
+    final extension = path.extension(filePath).toLowerCase();
+    if (!extension.contains('jpg') && !extension.contains('jpeg')) {
+      _exifDateCache[filePath] = null;
+      return null;
+    }
+    
+    try {
+      final bytes = await file.readAsBytes();
+      final data = await readExifFromBytes(bytes);
+      
+      // Пробуем разные EXIF теги для даты съемки
+      String? dateTimeString = data['EXIF DateTimeOriginal']?.toString() ??
+                              data['EXIF DateTime']?.toString() ??
+                              data['Image DateTime']?.toString();
+      
+      DateTime? result;
+      if (dateTimeString != null) {
+        // EXIF дата в формате: "YYYY:MM:DD HH:MM:SS"
+        // Заменяем первые два двоеточия на дефисы для даты
+        final parts = dateTimeString.split(' ');
+        if (parts.isNotEmpty) {
+          final datePart = parts[0].replaceAll(':', '-');
+          final timePart = parts.length > 1 ? parts[1] : '00:00:00';
+          dateTimeString = '${datePart}T$timePart';
+        }
+        
+        try {
+          result = DateTime.parse(dateTimeString);
+        } catch (e) {
+          // Если парсинг не удался, пробуем другой формат
+          final parts = dateTimeString.split(' ');
+          if (parts.length >= 2) {
+            final datePart = parts[0].replaceAll(':', '-');
+            final timePart = parts[1];
+            result = DateTime.parse('${datePart}T$timePart');
+          }
+        }
+      }
+      
+      // Кэшируем результат
+      _exifDateCache[filePath] = result;
+      return result;
+    } catch (e) {
+      // Ошибка чтения EXIF - кэшируем null
+      _exifDateCache[filePath] = null;
+      return null;
+    }
   }
 
   String _getFolderName(File file) {
@@ -226,6 +292,14 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _sortGalleryImages() {
+    if (_sortByExifDate) {
+      _sortGalleryImagesByExif();
+    } else {
+      _sortGalleryImagesByFileDate();
+    }
+  }
+
+  void _sortGalleryImagesByFileDate() {
     _allGalleryImages.sort((a, b) {
       try {
         // Используем statSync для более точной информации о файле
@@ -253,6 +327,81 @@ class _MyHomePageState extends State<MyHomePage> {
         }
       }
     });
+  }
+
+  void _sortGalleryImagesByExif() {
+    // Для EXIF сортировки используем асинхронный подход
+    setState(() {
+      _isSortingByExif = true;
+    });
+    _sortGalleryImagesAsync();
+  }
+
+  Future<void> _sortGalleryImagesAsync() async {
+    if (_allGalleryImages.isEmpty) return;
+    
+    // Создаем список пар [файл, дата] для эффективной сортировки
+    final List<({File file, DateTime date})> fileWithDates = [];
+    
+    // Обрабатываем файлы батчами для лучшей производительности
+    const batchSize = 10;
+    for (int i = 0; i < _allGalleryImages.length; i += batchSize) {
+      final end = (i + batchSize > _allGalleryImages.length) 
+          ? _allGalleryImages.length 
+          : i + batchSize;
+      final batch = _allGalleryImages.sublist(i, end);
+      
+      // Обрабатываем батч параллельно
+      final futures = batch.map((file) async {
+        DateTime date;
+        
+        // Пробуем получить EXIF дату
+        final exifDate = await _getExifDateTime(file);
+        if (exifDate != null) {
+          date = exifDate;
+        } else {
+          // Fallback к дате изменения файла
+          try {
+            date = file.statSync().modified;
+          } catch (e) {
+            try {
+              date = file.lastModifiedSync();
+            } catch (e2) {
+              date = DateTime(1970); // Очень старая дата для файлов с ошибками
+            }
+          }
+        }
+        
+        return (file: file, date: date);
+      });
+      
+      // Ждем завершения батча
+      final batchResults = await Future.wait(futures);
+      fileWithDates.addAll(batchResults);
+      
+      // Небольшая пауза между батчами для отзывчивости UI
+      if (i % (batchSize * 5) == 0) {
+        await Future.delayed(const Duration(milliseconds: 5));
+      }
+    }
+    
+    // Финальная сортировка
+    fileWithDates.sort((a, b) {
+      return _sortNewestFirst 
+          ? b.date.compareTo(a.date) // Новые сначала
+          : a.date.compareTo(b.date); // Старые сначала
+    });
+    
+    // Обновляем список файлов
+    _allGalleryImages.clear();
+    _allGalleryImages.addAll(fileWithDates.map((item) => item.file));
+    
+    // Финальное обновление UI
+    if (mounted) {
+      setState(() {
+        _isSortingByExif = false;
+      });
+    }
   }
 
   List<String> _getPathSegments(String filePath) {
@@ -745,7 +894,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   Text(
                     _isLoadingGallery 
                         ? 'Scanning for images...'
-                        : '${_allGalleryImages.length} images found',
+                        : _isSortingByExif
+                            ? 'Sorting by EXIF data...'
+                            : '${_allGalleryImages.length} images found',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -775,7 +926,17 @@ class _MyHomePageState extends State<MyHomePage> {
                       tooltip: 'Cancel selection',
                     ),
                   ] else ...[
-                    if (!_isLoadingGallery && _allGalleryImages.isNotEmpty)
+                    if (!_isLoadingGallery && _allGalleryImages.isNotEmpty) ...[
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _sortByExifDate = !_sortByExifDate;
+                          });
+                          _sortGalleryImages();
+                        },
+                        icon: Icon(_sortByExifDate ? Icons.camera_alt : Icons.access_time),
+                        tooltip: _sortByExifDate ? 'Sort by EXIF date' : 'Sort by file date',
+                      ),
                       IconButton(
                         onPressed: () {
                           setState(() {
@@ -783,11 +944,12 @@ class _MyHomePageState extends State<MyHomePage> {
                             _sortGalleryImages();
                           });
                         },
-                        icon: Icon(_sortNewestFirst ? Icons.schedule : Icons.history),
+                        icon: Icon(_sortNewestFirst ? Icons.arrow_downward : Icons.arrow_upward),
                         tooltip: _sortNewestFirst ? 'Sort oldest first' : 'Sort newest first',
                       ),
+                    ],
                   ],
-                  if (_isLoadingGallery)
+                  if (_isLoadingGallery || _isSortingByExif)
                     const SizedBox(
                       width: 20,
                       height: 20,
