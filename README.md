@@ -78,6 +78,22 @@ flutter build windows
 flutter build web
 ```
 
+### Installing on Linux
+After building, you can install the application system-wide:
+```bash
+# Copy the executable
+sudo cp build/linux/x64/release/bundle/photo_view /usr/local/bin/
+
+# Copy the desktop file
+sudo cp linux/photo_view.desktop /usr/share/applications/
+
+# Copy the icon
+sudo cp linux/photo_view.png /usr/share/pixmaps/
+
+# Update desktop database
+sudo update-desktop-database
+```
+
 ## Usage
 
 ### Basic Navigation
