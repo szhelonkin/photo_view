@@ -20,6 +20,7 @@ A cross-platform image gallery and file explorer built with Flutter. Browse, vie
 - **Multiple Selection**: Select multiple images with visual indicators (long-press to start)
 - **Batch Operations**: Copy selected images to different folders
 - **Quick Preview**: Right-click any image for instant full-size preview overlay
+- **Folder Information**: Each thumbnail displays both filename and parent folder name with color-coded folder badges
 
 ### 🔍 **Image Viewer**
 - **Full-Screen Viewing**: Clean, distraction-free image display

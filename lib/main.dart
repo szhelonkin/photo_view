@@ -176,6 +176,55 @@ class _MyHomePageState extends State<MyHomePage> {
     return name.startsWith('.');
   }
 
+  String _getFolderName(File file) {
+    final directory = path.dirname(file.path);
+    return path.basename(directory);
+  }
+
+  Color _getFolderColor(String folderName) {
+    // Набор красивых цветов для папок
+    final colors = [
+      const Color(0xFF673AB7), // Deep Purple
+      const Color(0xFF3F51B5), // Indigo
+      const Color(0xFF2196F3), // Blue
+      const Color(0xFF03DAC6), // Teal
+      const Color(0xFF4CAF50), // Green
+      const Color(0xFF8BC34A), // Light Green
+      const Color(0xFFCDDC39), // Lime
+      const Color(0xFFFFEB3B), // Yellow
+      const Color(0xFFFF9800), // Orange
+      const Color(0xFFFF5722), // Deep Orange
+      const Color(0xFFE91E63), // Pink
+      const Color(0xFF9C27B0), // Purple
+      const Color(0xFF795548), // Brown
+      const Color(0xFF607D8B), // Blue Grey
+      const Color(0xFF009688), // Teal variant
+      const Color(0xFFFF6F00), // Amber
+    ];
+
+    // Создаем простой хеш из имени папки
+    int hash = 0;
+    for (int i = 0; i < folderName.length; i++) {
+      hash = hash * 31 + folderName.codeUnitAt(i);
+    }
+    
+    // Используем абсолютное значение хеша для выбора цвета
+    final colorIndex = hash.abs() % colors.length;
+    return colors[colorIndex];
+  }
+
+  Color _getTextColorForBackground(Color backgroundColor) {
+    // Вычисляем яркость цвета используя формулу относительной яркости
+    final r = (backgroundColor.r * 255.0).round() & 0xff;
+    final g = (backgroundColor.g * 255.0).round() & 0xff;
+    final b = (backgroundColor.b * 255.0).round() & 0xff;
+    
+    final brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    
+    // Если цвет темный, используем белый текст, иначе черный
+    return brightness < 0.5 ? Colors.white : Colors.black;
+  }
+
   void _sortGalleryImages() {
     _allGalleryImages.sort((a, b) {
       try {
@@ -916,6 +965,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         child: Container(), // Пустой контейнер для показа ошибки
                       ),
               ),
+              // File name at bottom
               Positioned(
                 bottom: 4,
                 left: 4,
@@ -936,6 +986,37 @@ class _MyHomePageState extends State<MyHomePage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                ),
+              ),
+              // Folder name at top
+              Positioned(
+                top: 4,
+                left: 4,
+                right: _isSelectionMode ? 40 : 4, // Leave space for selection indicator
+                child: Builder(
+                  builder: (context) {
+                    final folderName = _getFolderName(imageFile);
+                    final backgroundColor = _getFolderColor(folderName);
+                    final textColor = _getTextColorForBackground(backgroundColor);
+                    
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: backgroundColor.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        folderName,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  },
                 ),
               ),
               // Добавляем индикатор выбора
