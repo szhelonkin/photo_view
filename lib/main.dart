@@ -69,6 +69,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _showHiddenFiles = false;
   bool _sortNewestFirst = true;
   Directory? _currentGalleryDirectory;
+  final ScrollController _galleryScrollController = ScrollController();
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -78,6 +79,12 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
     _loadHomeDirectory();
+  }
+
+  @override
+  void dispose() {
+    _galleryScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadHomeDirectory() async {
@@ -168,6 +175,117 @@ class _MyHomePageState extends State<MyHomePage> {
           ? bModified.compareTo(aModified) // Новые сначала
           : aModified.compareTo(bModified); // Старые сначала
     });
+  }
+
+  List<String> _getPathSegments(String filePath) {
+    final directory = path.dirname(filePath);
+    final parts = directory.split(Platform.pathSeparator);
+    return parts.where((part) => part.isNotEmpty).toList();
+  }
+
+  String _buildPathUpTo(List<String> segments, int index) {
+    if (index < 0) return Platform.pathSeparator;
+    final pathParts = segments.sublist(0, index + 1);
+    return Platform.pathSeparator + pathParts.join(Platform.pathSeparator);
+  }
+
+  void _scrollToImageInGallery(File imageFile) {
+    final index = _allGalleryImages.indexOf(imageFile);
+    if (index >= 0 && _galleryScrollController.hasClients) {
+      // Получаем размеры из LayoutBuilder контекста
+      final screenWidth = MediaQuery.of(context).size.width;
+      const double itemSize = 180.0;
+      const double spacing = 12.0;
+      const double padding = 16.0;
+      
+      // Точно вычисляем количество колонок как в LayoutBuilder
+      final availableWidth = screenWidth - (padding * 2);
+      final crossAxisCount = ((availableWidth + spacing) / (itemSize + spacing)).floor().clamp(1, 10);
+      
+      // Вычисляем строку элемента
+      final row = (index / crossAxisCount).floor();
+      
+      // Точно вычисляем высоту строки
+      final rowHeight = itemSize + spacing;
+      
+      // Целевая позиция с учетом паддинга
+      final targetOffset = (row * rowHeight).clamp(0.0, _galleryScrollController.position.maxScrollExtent);
+      
+      _galleryScrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  Widget _buildClickablePath(String filePath) {
+    final segments = _getPathSegments(filePath);
+    
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          // Root directory
+          GestureDetector(
+            onTap: () {
+              _loadDirectory(Directory(Platform.pathSeparator));
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                Platform.pathSeparator,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+          // Path segments
+          ...segments.asMap().entries.map((entry) {
+            final index = entry.key;
+            final segment = entry.value;
+            final fullPath = _buildPathUpTo(segments, index);
+            
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  Platform.pathSeparator,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    _loadDirectory(Directory(fullPath));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      segment,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
   }
 
   Widget _buildFileIcon(FileSystemEntity entity, bool isDirectory, bool isImageFile) {
@@ -399,16 +517,22 @@ class _MyHomePageState extends State<MyHomePage> {
                 )
               : LayoutBuilder(
                   builder: (context, constraints) {
-                    final itemSize = 180.0;
-                    final crossAxisCount = (constraints.maxWidth / (itemSize + 12)).floor().clamp(1, 10);
+                    const double itemSize = 180.0;
+                    const double spacing = 12.0;
+                    const double padding = 16.0;
+                    
+                    // Используем тот же расчет, что и в _scrollToImageInGallery
+                    final availableWidth = constraints.maxWidth - (padding * 2);
+                    final crossAxisCount = ((availableWidth + spacing) / (itemSize + spacing)).floor().clamp(1, 10);
                     
                     return GridView.builder(
-                      padding: const EdgeInsets.all(16),
+                      controller: _galleryScrollController,
+                      padding: const EdgeInsets.all(padding),
                       cacheExtent: 1000, // Кэшируем больше элементов
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
+                        crossAxisSpacing: spacing,
+                        mainAxisSpacing: spacing,
                         childAspectRatio: 1.0,
                       ),
                       itemCount: _allGalleryImages.length,
@@ -431,6 +555,11 @@ class _MyHomePageState extends State<MyHomePage> {
         setState(() {
           _selectedImage = imageFile;
           _currentImageIndex = index >= 0 ? index : 0;
+        });
+        
+        // Через небольшую задержку прокрутить к изображению при возврате
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToImageInGallery(imageFile);
         });
       },
       child: Container(
@@ -684,21 +813,23 @@ class _MyHomePageState extends State<MyHomePage> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 2),
-                                    Text(
-                                      _selectedImage!.path,
-                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                                    _buildClickablePath(_selectedImage!.path),
                                   ],
                                 ),
                               ),
                               IconButton(
                                 onPressed: () {
+                                  final currentImage = _selectedImage;
                                   setState(() {
                                     _selectedImage = null;
                                   });
+                                  
+                                  // Восстановить позицию в галерее
+                                  if (currentImage != null) {
+                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                      _scrollToImageInGallery(currentImage);
+                                    });
+                                  }
                                 },
                                 icon: const Icon(Icons.close),
                                 tooltip: 'Close image',
