@@ -267,6 +267,9 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
+      final List<File> batch = [];
+      const int batchSize = 50;
+      
       await for (FileSystemEntity entity in directory.list(recursive: true, followLinks: false)) {
         // Check if we're still loading the same directory
         if (_currentGalleryDirectory?.path != directory.path) {
@@ -277,12 +280,24 @@ class _MyHomePageState extends State<MyHomePage> {
         if (entity is File && _isImageFile(entity)) {
           // Filter hidden files if needed
           if (_showHiddenFiles || !_isHiddenFile(entity)) {
-            _allGalleryImages.add(entity);
-            if (_allGalleryImages.length % 20 == 0) {
+            batch.add(entity);
+            
+            // Process in batches for better performance
+            if (batch.length >= batchSize) {
+              _allGalleryImages.addAll(batch);
+              batch.clear();
+              
+              // Update UI and yield to prevent blocking
               setState(() {});
+              await Future.delayed(const Duration(milliseconds: 1));
             }
           }
         }
+      }
+      
+      // Add remaining files
+      if (batch.isNotEmpty) {
+        _allGalleryImages.addAll(batch);
       }
     } catch (e) {
       debugPrint('Error discovering images: $e');
@@ -389,6 +404,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     
                     return GridView.builder(
                       padding: const EdgeInsets.all(16),
+                      cacheExtent: 1000, // Кэшируем больше элементов
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: crossAxisCount,
                         crossAxisSpacing: 12,
@@ -456,7 +472,11 @@ class _MyHomePageState extends State<MyHomePage> {
                     : Container(
                         decoration: BoxDecoration(
                           image: DecorationImage(
-                            image: FileImage(imageFile),
+                            image: ResizeImage(
+                              FileImage(imageFile),
+                              width: 360, // Больший размер для качества
+                              allowUpscaling: false,
+                            ),
                             fit: BoxFit.cover,
                             alignment: Alignment.center,
                             onError: (error, stackTrace) {},
