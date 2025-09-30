@@ -787,19 +787,19 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _navigateToPreviousImage() {
-    if (_imageFiles.isNotEmpty && _currentImageIndex > 0) {
+    if (_allGalleryImages.isNotEmpty && _currentImageIndex > 0) {
       setState(() {
         _currentImageIndex--;
-        _selectedImage = _imageFiles[_currentImageIndex];
+        _selectedImage = _allGalleryImages[_currentImageIndex];
       });
     }
   }
 
   void _navigateToNextImage() {
-    if (_imageFiles.isNotEmpty && _currentImageIndex < _imageFiles.length - 1) {
+    if (_allGalleryImages.isNotEmpty && _currentImageIndex < _allGalleryImages.length - 1) {
       setState(() {
         _currentImageIndex++;
-        _selectedImage = _imageFiles[_currentImageIndex];
+        _selectedImage = _allGalleryImages[_currentImageIndex];
       });
     }
   }
@@ -1048,10 +1048,10 @@ class _MyHomePageState extends State<MyHomePage> {
             });
           } else {
             // Обычный режим - открыть просмотрщик
-            final index = _imageFiles.indexOf(imageFile);
+            final galleryIndex = _allGalleryImages.indexOf(imageFile);
             setState(() {
               _selectedImage = imageFile;
-              _currentImageIndex = index >= 0 ? index : 0;
+              _currentImageIndex = galleryIndex >= 0 ? galleryIndex : 0;
             });
             
             // Через небольшую задержку прокрутить к изображению при возврате
@@ -1510,13 +1510,13 @@ class _MyHomePageState extends State<MyHomePage> {
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: Text(
-                                '${_currentImageIndex + 1} / ${_imageFiles.length}',
+                                '${_currentImageIndex + 1} / ${_allGalleryImages.length}',
                                 style: Theme.of(context).textTheme.bodyMedium,
                               ),
                             ),
                             const SizedBox(width: 16),
                             IconButton(
-                              onPressed: _currentImageIndex < _imageFiles.length - 1 ? _navigateToNextImage : null,
+                              onPressed: _currentImageIndex < _allGalleryImages.length - 1 ? _navigateToNextImage : null,
                               icon: const Icon(Icons.arrow_forward_ios),
                               tooltip: 'Next image',
                             ),
