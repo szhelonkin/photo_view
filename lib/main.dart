@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'dart:async';
 import 'package:path/path.dart' as path;
@@ -81,6 +82,7 @@ class _MyHomePageState extends State<MyHomePage> {
   // Кэш для EXIF-дат
   final Map<String, DateTime?> _exifDateCache = {};
   bool _isSortingByExif = false;
+  bool _isFullscreen = false;
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -95,6 +97,8 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _galleryScrollController.dispose();
+    // Восстанавливаем системные панели при закрытии
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
@@ -489,6 +493,29 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  void _toggleFullscreen() {
+    setState(() {
+      _isFullscreen = !_isFullscreen;
+    });
+    
+    if (_isFullscreen) {
+      // Скрываем системные панели на мобильных устройствах
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
+    } else {
+      // Восстанавливаем системные панели
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
+  }
+
+  void _exitFullscreen() {
+    setState(() {
+      _isFullscreen = false;
+    });
+    
+    // Восстанавливаем системные панели
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
   Future<void> _createNewFolder() async {
     if (_currentDirectory == null) return;
 
@@ -614,6 +641,163 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
         ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFullscreenViewer() {
+    if (_selectedImage == null) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event.logicalKey.keyLabel == 'Escape') {
+            _exitFullscreen();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey.keyLabel == 'Arrow Left') {
+            _navigateToPreviousImage();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey.keyLabel == 'Arrow Right') {
+            _navigateToNextImage();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Container(
+          color: Colors.black,
+          child: Stack(
+            children: [
+              // Основное изображение с навигацией жестами
+              GestureDetector(
+                onTap: _exitFullscreen,
+                onHorizontalDragEnd: (details) {
+                  if (details.primaryVelocity != null) {
+                    if (details.primaryVelocity! > 0) {
+                      // Свайп вправо - предыдущее изображение
+                      _navigateToPreviousImage();
+                    } else if (details.primaryVelocity! < 0) {
+                      // Свайп влево - следующее изображение
+                      _navigateToNextImage();
+                    }
+                  }
+                },
+                child: Center(
+                  child: InteractiveViewer(
+                    panEnabled: true,
+                    boundaryMargin: const EdgeInsets.all(20),
+                    minScale: 0.5,
+                    maxScale: 4.0,
+                    child: _isSvgFile(_selectedImage!)
+                        ? SvgPicture.file(
+                            _selectedImage!,
+                            fit: BoxFit.contain,
+                            placeholderBuilder: (context) => const Center(
+                              child: CircularProgressIndicator(color: Colors.white),
+                            ),
+                          )
+                        : Image.file(
+                            _selectedImage!,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.error_outline,
+                                    size: 64,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Error loading image',
+                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                  ),
+                ),
+              ),
+              // Кнопка закрытия
+              Positioned(
+                top: 40,
+                right: 40,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed: _exitFullscreen,
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    iconSize: 24,
+                  ),
+                ),
+              ),
+              // Счетчик изображений
+              Positioned(
+                top: 40,
+                left: 40,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    '${_currentImageIndex + 1} / ${_allGalleryImages.length}',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              // Кнопки навигации (опционально)
+              if (_currentImageIndex > 0)
+                Positioned(
+                  left: 20,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        onPressed: _navigateToPreviousImage,
+                        icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+                        iconSize: 32,
+                      ),
+                    ),
+                  ),
+                ),
+              if (_currentImageIndex < _allGalleryImages.length - 1)
+                Positioned(
+                  right: 20,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        onPressed: _navigateToNextImage,
+                        icon: const Icon(Icons.arrow_forward_ios, color: Colors.white),
+                        iconSize: 32,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1229,7 +1413,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: _isFullscreen ? null : AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
         actions: [
@@ -1257,9 +1441,11 @@ class _MyHomePageState extends State<MyHomePage> {
           ],
         ],
       ),
-      body: Row(
+      body: Stack(
         children: [
-          Container(
+          Row(
+            children: [
+              Container(
             width: 300,
             decoration: BoxDecoration(
               border: Border(
@@ -1436,56 +1622,59 @@ class _MyHomePageState extends State<MyHomePage> {
                           child: Stack(
                             children: [
                               Center(
-                                child: InteractiveViewer(
-                              panEnabled: true,
-                              boundaryMargin: const EdgeInsets.all(20),
-                              minScale: 0.5,
-                              maxScale: 4.0,
-                              child: _isSvgFile(_selectedImage!)
-                                  ? SvgPicture.file(
-                                      _selectedImage!,
-                                      fit: BoxFit.contain,
-                                      placeholderBuilder: (context) => Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          CircularProgressIndicator(),
-                                          const SizedBox(height: 16),
-                                          Text(
-                                            'Loading SVG...',
-                                            style: Theme.of(context).textTheme.bodyMedium,
+                                child: GestureDetector(
+                                  onDoubleTap: _toggleFullscreen,
+                                  child: InteractiveViewer(
+                                    panEnabled: true,
+                                    boundaryMargin: const EdgeInsets.all(20),
+                                    minScale: 0.5,
+                                    maxScale: 4.0,
+                                    child: _isSvgFile(_selectedImage!)
+                                        ? SvgPicture.file(
+                                            _selectedImage!,
+                                            fit: BoxFit.contain,
+                                            placeholderBuilder: (context) => Column(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                CircularProgressIndicator(),
+                                                const SizedBox(height: 16),
+                                                Text(
+                                                  'Loading SVG...',
+                                                  style: Theme.of(context).textTheme.bodyMedium,
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        : Image.file(
+                                            _selectedImage!,
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, error, stackTrace) {
+                                              return Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(
+                                                    Icons.error_outline,
+                                                    size: 64,
+                                                    color: Theme.of(context).colorScheme.error,
+                                                  ),
+                                                  const SizedBox(height: 16),
+                                                  Text(
+                                                    'Error loading image',
+                                                    style: Theme.of(context).textTheme.titleMedium,
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Text(
+                                                    error.toString(),
+                                                    style: Theme.of(context).textTheme.bodySmall,
+                                                    textAlign: TextAlign.center,
+                                                  ),
+                                                ],
+                                              );
+                                            },
                                           ),
-                                        ],
-                                      ),
-                                    )
-                                  : Image.file(
-                                _selectedImage!,
-                                fit: BoxFit.contain,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.error_outline,
-                                        size: 64,
-                                        color: Theme.of(context).colorScheme.error,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        'Error loading image',
-                                        style: Theme.of(context).textTheme.titleMedium,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        error.toString(),
-                                        style: Theme.of(context).textTheme.bodySmall,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  );
-                                },
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
                             ],
                           ),
                         ),
@@ -1558,6 +1747,11 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
             ),
           ),
+            ],
+          ),
+          // Полноэкранный вьюер поверх всего
+          if (_isFullscreen)
+            _buildFullscreenViewer(),
         ],
       ),
     );
