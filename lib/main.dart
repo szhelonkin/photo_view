@@ -104,10 +104,41 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _loadHomeDirectory() async {
     try {
-      final homeDir = Directory(Platform.environment['HOME'] ?? '/home');
-      await _loadDirectory(homeDir);
+      String homePath;
+      if (Platform.isWindows) {
+        homePath = Platform.environment['USERPROFILE'] ?? 
+                   (Platform.environment['HOMEDRIVE'] != null && Platform.environment['HOMEPATH'] != null
+                    ? Platform.environment['HOMEDRIVE']! + Platform.environment['HOMEPATH']!
+                    : 'C:\\Users\\${Platform.environment['USERNAME'] ?? 'Default'}');
+      } else {
+        homePath = Platform.environment['HOME'] ?? '/home';
+      }
+      
+      final homeDir = Directory(homePath);
+      debugPrint('Loading home directory: ${homeDir.path}');
+      
+      // Проверяем существование папки
+      if (await homeDir.exists()) {
+        await _loadDirectory(homeDir);
+      } else {
+        debugPrint('Home directory does not exist: ${homeDir.path}');
+        // Пробуем загрузить корень диска C: для Windows
+        if (Platform.isWindows) {
+          await _loadDirectory(Directory('C:\\'));
+        }
+      }
     } catch (e) {
       debugPrint('Error loading home directory: $e');
+      // В случае ошибки пробуем загрузить корень
+      try {
+        if (Platform.isWindows) {
+          await _loadDirectory(Directory('C:\\'));
+        } else {
+          await _loadDirectory(Directory('/'));
+        }
+      } catch (e2) {
+        debugPrint('Error loading fallback directory: $e2');
+      }
     }
   }
 
@@ -117,7 +148,19 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
+      debugPrint('Loading directory: ${directory.path}');
+      
+      // Проверяем права доступа к директории
+      if (!await directory.exists()) {
+        debugPrint('Directory does not exist: ${directory.path}');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+      
       final allEntities = await directory.list().toList();
+      debugPrint('Found ${allEntities.length} entities in directory');
       
       // Filter hidden files if needed
       final entities = allEntities.where((entity) {
@@ -161,6 +204,17 @@ class _MyHomePageState extends State<MyHomePage> {
         _isLoading = false;
       });
       debugPrint('Error loading directory: $e');
+      
+      // Показываем пользователю сообщение об ошибке
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading directory: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 
@@ -1437,6 +1491,22 @@ class _MyHomePageState extends State<MyHomePage> {
               onPressed: _navigateToParent,
               icon: const Icon(Icons.arrow_upward),
               tooltip: 'Go to parent directory',
+            ),
+            IconButton(
+              onPressed: () async {
+                // Показать диалог выбора папки
+                final result = await showDialog<Directory>(
+                  context: context,
+                  builder: (context) => _FolderPickerDialog(
+                    currentDirectory: _currentDirectory ?? Directory(Platform.isWindows ? 'C:\\' : '/'),
+                  ),
+                );
+                if (result != null) {
+                  await _loadDirectory(result);
+                }
+              },
+              icon: const Icon(Icons.folder_open),
+              tooltip: 'Choose directory',
             ),
           ],
         ],
