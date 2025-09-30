@@ -88,6 +88,9 @@ class _MyHomePageState extends State<MyHomePage> {
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
   ];
 
+  // Оптимизированный Set для быстрой проверки расширений
+  static final Set<String> _imageExtensionsSet = _imageExtensions.toSet();
+
   @override
   void initState() {
     super.initState();
@@ -229,7 +232,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   bool _isImageFile(File file) {
     final extension = path.extension(file.path).toLowerCase();
-    return _imageExtensions.contains(extension);
+    return _imageExtensionsSet.contains(extension);
   }
   
   bool _isSvgFile(File file) {
@@ -397,22 +400,22 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _sortGalleryImagesAsync() async {
     if (_allGalleryImages.isEmpty) return;
-    
+
     // Создаем список пар [файл, дата] для эффективной сортировки
     final List<({File file, DateTime date})> fileWithDates = [];
-    
+
     // Обрабатываем файлы батчами для лучшей производительности
-    const batchSize = 10;
+    const batchSize = 20; // Увеличен размер батча для Windows
     for (int i = 0; i < _allGalleryImages.length; i += batchSize) {
-      final end = (i + batchSize > _allGalleryImages.length) 
-          ? _allGalleryImages.length 
+      final end = (i + batchSize > _allGalleryImages.length)
+          ? _allGalleryImages.length
           : i + batchSize;
       final batch = _allGalleryImages.sublist(i, end);
-      
+
       // Обрабатываем батч параллельно
       final futures = batch.map((file) async {
         DateTime date;
-        
+
         // Пробуем получить EXIF дату
         final exifDate = await _getExifDateTime(file);
         if (exifDate != null) {
@@ -429,31 +432,31 @@ class _MyHomePageState extends State<MyHomePage> {
             }
           }
         }
-        
+
         return (file: file, date: date);
       });
-      
+
       // Ждем завершения батча
       final batchResults = await Future.wait(futures);
       fileWithDates.addAll(batchResults);
-      
-      // Небольшая пауза между батчами для отзывчивости UI
-      if (i % (batchSize * 5) == 0) {
-        await Future.delayed(const Duration(milliseconds: 5));
+
+      // Небольшая пауза между батчами для отзывчивости UI - уменьшена
+      if (i % (batchSize * 10) == 0 && mounted) {
+        await Future.delayed(const Duration(milliseconds: 1));
       }
     }
-    
+
     // Финальная сортировка
     fileWithDates.sort((a, b) {
-      return _sortNewestFirst 
+      return _sortNewestFirst
           ? b.date.compareTo(a.date) // Новые сначала
           : a.date.compareTo(b.date); // Старые сначала
     });
-    
+
     // Обновляем список файлов
     _allGalleryImages.clear();
     _allGalleryImages.addAll(fileWithDates.map((item) => item.file));
-    
+
     // Финальное обновление UI
     if (mounted) {
       setState(() {
@@ -1045,7 +1048,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _loadGalleryImages(Directory directory) async {
     // If already loading the same directory, don't start again
     if (_isLoadingGallery && _currentGalleryDirectory?.path == directory.path) return;
-    
+
     setState(() {
       _isLoadingGallery = true;
       _allGalleryImages.clear();
@@ -1054,36 +1057,56 @@ class _MyHomePageState extends State<MyHomePage> {
 
     try {
       final List<File> batch = [];
-      const int batchSize = 50;
-      
+      const int batchSize = 100; // Увеличен размер батча
+      int uiUpdateCounter = 0;
+      const int uiUpdateInterval = 5; // Обновляем UI реже
+
+      // Используем асинхронную очередь для параллельной обработки
       await for (FileSystemEntity entity in directory.list(recursive: true, followLinks: false)) {
         // Check if we're still loading the same directory
         if (_currentGalleryDirectory?.path != directory.path) {
           // Directory changed, stop loading
           return;
         }
-        
-        if (entity is File && _isImageFile(entity)) {
-          // Filter hidden files if needed
-          if (_showHiddenFiles || !_isHiddenFile(entity)) {
-            batch.add(entity);
-            
-            // Process in batches for better performance
-            if (batch.length >= batchSize) {
-              _allGalleryImages.addAll(batch);
-              batch.clear();
-              
-              // Sort after adding each batch so user sees correctly ordered images
+
+        if (entity is File) {
+
+          // Быстрая проверка расширения без лишних вызовов функций
+          final filePath = entity.path;
+          final lastDotIndex = filePath.lastIndexOf('.');
+          if (lastDotIndex == -1) continue;
+
+          final extension = filePath.substring(lastDotIndex).toLowerCase();
+          if (!_imageExtensionsSet.contains(extension)) continue;
+
+          // Проверка скрытых файлов
+          if (!_showHiddenFiles && _isHiddenFile(entity)) continue;
+
+          batch.add(entity);
+
+          // Process in batches for better performance
+          if (batch.length >= batchSize) {
+            _allGalleryImages.addAll(batch);
+            batch.clear();
+
+            // Обновляем UI реже для лучшей производительности
+            uiUpdateCounter++;
+            if (uiUpdateCounter >= uiUpdateInterval) {
+              // Sort after adding batches
               _sortGalleryImages();
-              
+
               // Update UI and yield to prevent blocking
-              setState(() {});
-              await Future.delayed(const Duration(milliseconds: 1));
+              if (mounted) {
+                setState(() {});
+              }
+              uiUpdateCounter = 0;
+              // Уменьшена задержка
+              await Future.delayed(const Duration(microseconds: 500));
             }
           }
         }
       }
-      
+
       // Add remaining files
       if (batch.isNotEmpty) {
         _allGalleryImages.addAll(batch);
@@ -1093,16 +1116,15 @@ class _MyHomePageState extends State<MyHomePage> {
     } catch (e) {
       debugPrint('Error discovering images: $e');
     }
-    
+
     // Only update state if we're still loading the same directory
-    if (_currentGalleryDirectory?.path == directory.path) {
+    if (_currentGalleryDirectory?.path == directory.path && mounted) {
       setState(() {
         _isLoadingGallery = false;
         _galleryLoadCompleted = true;
       });
-      
+
       // Final sort to ensure everything is in correct order
-      // (though images should already be sorted from batches)
       _sortGalleryImages();
     }
   }
@@ -1239,7 +1261,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     return GridView.builder(
                       controller: _galleryScrollController,
                       padding: const EdgeInsets.all(padding),
-                      cacheExtent: 1000, // Кэшируем больше элементов
+                      cacheExtent: 2000, // Увеличено кэширование для Windows
+                      addAutomaticKeepAlives: true,
+                      addRepaintBoundaries: true,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: crossAxisCount,
                         crossAxisSpacing: spacing,
@@ -1335,35 +1359,37 @@ class _MyHomePageState extends State<MyHomePage> {
                 color: Theme.of(context).colorScheme.surfaceContainerHighest,
               ),
               Positioned.fill(
-                child: _isSvgFile(imageFile)
-                    ? ClipRect(
-                        child: SvgPicture.file(
-                          imageFile,
-                          fit: BoxFit.cover,
-                          placeholderBuilder: (context) => Center(
-                            child: Icon(
-                              Icons.image,
-                              color: Theme.of(context).colorScheme.primary,
-                              size: 32,
-                            ),
-                          ),
-                        ),
-                      )
-                    : Container(
-                        decoration: BoxDecoration(
-                          image: DecorationImage(
-                            image: ResizeImage(
-                              FileImage(imageFile),
-                              width: 360, // Больший размер для качества
-                              allowUpscaling: false,
-                            ),
+                child: RepaintBoundary(
+                  child: _isSvgFile(imageFile)
+                      ? ClipRect(
+                          child: SvgPicture.file(
+                            imageFile,
                             fit: BoxFit.cover,
-                            alignment: Alignment.center,
-                            onError: (error, stackTrace) {},
+                            placeholderBuilder: (context) => Center(
+                              child: Icon(
+                                Icons.image,
+                                color: Theme.of(context).colorScheme.primary,
+                                size: 32,
+                              ),
+                            ),
                           ),
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            image: DecorationImage(
+                              image: ResizeImage(
+                                FileImage(imageFile),
+                                width: 300, // Оптимизировано для Windows
+                                allowUpscaling: false,
+                              ),
+                              fit: BoxFit.cover,
+                              alignment: Alignment.center,
+                              onError: (error, stackTrace) {},
+                            ),
+                          ),
+                          child: Container(), // Пустой контейнер для показа ошибки
                         ),
-                        child: Container(), // Пустой контейнер для показа ошибки
-                      ),
+                ),
               ),
               // File name at bottom
               Positioned(
