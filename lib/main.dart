@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:path/path.dart' as path;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:exif/exif.dart';
+import 'geo_utils.dart';
 
 void main() {
   runApp(const MyApp());
@@ -83,6 +84,10 @@ class _MyHomePageState extends State<MyHomePage> {
   final Map<String, DateTime?> _exifDateCache = {};
   bool _isSortingByExif = false;
   bool _isFullscreen = false;
+
+  // Геолокация
+  bool _showCountryFlags = false;
+  final Map<String, String?> _countryCache = {};
   
   static const List<String> _imageExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'
@@ -1190,6 +1195,15 @@ class _MyHomePageState extends State<MyHomePage> {
                       IconButton(
                         onPressed: () {
                           setState(() {
+                            _showCountryFlags = !_showCountryFlags;
+                          });
+                        },
+                        icon: Icon(_showCountryFlags ? Icons.flag : Icons.flag_outlined),
+                        tooltip: _showCountryFlags ? 'Hide country flags' : 'Show country flags',
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
                             _sortByExifDate = !_sortByExifDate;
                           });
                           _sortGalleryImages();
@@ -1414,33 +1428,87 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
-              // Folder name at top
+              // Folder name and flag at top
               Positioned(
                 top: 4,
                 left: 4,
-                right: _isSelectionMode ? 40 : 4, // Leave space for selection indicator
+                right: _isSelectionMode ? 40 : 4,
                 child: Builder(
                   builder: (context) {
                     final folderName = _getFolderName(imageFile);
                     final backgroundColor = _getFolderColor(folderName);
                     final textColor = _getTextColorForBackground(backgroundColor);
-                    
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: backgroundColor.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        folderName,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
+
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: backgroundColor.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            folderName,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        if (_showCountryFlags) ...[
+                          const SizedBox(width: 4),
+                          FutureBuilder<String?>(
+                            key: ValueKey('${imageFile.path}_$_showCountryFlags'),
+                            future: GeoUtils.getCountryForImage(imageFile, _countryCache),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                return const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 1.5),
+                                );
+                              }
+
+                              if (snapshot.hasData && snapshot.data != null) {
+                                final flag = GeoUtils.getFlagEmoji(snapshot.data!);
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.7),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    flag,
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                );
+                              }
+
+                              // Показываем иконку "нет GPS" если данных нет
+                              if (snapshot.connectionState == ConnectionState.done) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.5),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Icon(
+                                    Icons.location_off,
+                                    size: 12,
+                                    color: Colors.white70,
+                                  ),
+                                );
+                              }
+
+                              return const SizedBox.shrink();
+                            },
+                          ),
+                        ],
+                      ],
                     );
                   },
                 ),
