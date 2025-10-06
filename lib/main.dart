@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'package:path/path.dart' as path;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:exif/exif.dart';
@@ -573,9 +574,100 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _isFullscreen = false;
     });
-    
+
     // Восстанавливаем системные панели
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  Future<void> _copyImageToClipboard() async {
+    if (_selectedImage == null) return;
+
+    try {
+      // Читаем байты изображения
+      final bytes = await _selectedImage!.readAsBytes();
+
+      // Копируем изображение в буфер обмена
+      // Для Linux/Desktop используем системную команду через Process
+      if (Platform.isLinux) {
+        // Определяем MIME тип по расширению
+        final ext = path.extension(_selectedImage!.path).toLowerCase();
+        String mimeType = 'image/png';
+        if (ext == '.jpg' || ext == '.jpeg') {
+          mimeType = 'image/jpeg';
+        } else if (ext == '.gif') {
+          mimeType = 'image/gif';
+        } else if (ext == '.bmp') {
+          mimeType = 'image/bmp';
+        } else if (ext == '.webp') {
+          mimeType = 'image/webp';
+        }
+
+        // Проверяем наличие xclip
+        final xclipCheck = await Process.run('which', ['xclip']);
+        if (xclipCheck.exitCode != 0) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Install xclip to copy images:\nsudo apt install xclip'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+
+        // Используем xclip для копирования изображения
+        final process = await Process.start(
+          'xclip',
+          ['-selection', 'clipboard', '-t', mimeType, '-i'],
+        );
+
+        // Записываем байты в stdin процесса
+        process.stdin.add(bytes);
+        await process.stdin.close();
+
+        final exitCode = await process.exitCode;
+
+        if (exitCode == 0) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Image copied: ${path.basename(_selectedImage!.path)}'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } else {
+          final stderr = await process.stderr.transform(utf8.decoder).join();
+          throw Exception('xclip failed: $stderr');
+        }
+      } else {
+        // Для других платформ копируем путь
+        await Clipboard.setData(ClipboardData(text: _selectedImage!.path));
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Image path copied: ${path.basename(_selectedImage!.path)}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Copy error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _createNewFolder() async {
@@ -1762,12 +1854,17 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ),
                               ),
                               IconButton(
+                                onPressed: _copyImageToClipboard,
+                                icon: const Icon(Icons.copy),
+                                tooltip: 'Copy path (Ctrl+C)',
+                              ),
+                              IconButton(
                                 onPressed: () {
                                   final currentImage = _selectedImage;
                                   setState(() {
                                     _selectedImage = null;
                                   });
-                                  
+
                                   // Восстановить позицию в галерее
                                   if (currentImage != null) {
                                     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1783,7 +1880,21 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
                         const SizedBox(height: 16),
                         Expanded(
-                          child: Stack(
+                          child: Focus(
+                            autofocus: true,
+                            onKeyEvent: (node, event) {
+                              if (event is KeyDownEvent) {
+                                // Ctrl+C для копирования
+                                final isCtrlPressed = HardwareKeyboard.instance.isControlPressed ||
+                                                     HardwareKeyboard.instance.isMetaPressed;
+                                if (event.logicalKey == LogicalKeyboardKey.keyC && isCtrlPressed) {
+                                  _copyImageToClipboard();
+                                  return KeyEventResult.handled;
+                                }
+                              }
+                              return KeyEventResult.ignored;
+                            },
+                            child: Stack(
                             children: [
                               Center(
                                 child: GestureDetector(
@@ -1840,6 +1951,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ),
                               ),
                             ],
+                          ),
                           ),
                         ),
                         // Navigation controls

@@ -28,6 +28,9 @@ A cross-platform image gallery and file explorer built with Flutter. Browse, vie
 - **Navigation Controls**: Previous/next buttons with current position indicator
 - **File Information**: Display filename and full clickable path
 - **SVG Support**: Full support for SVG files alongside standard image formats
+- **Image Copy**: Copy images to clipboard with Ctrl+C (Linux with xclip)
+- **Country Flags**: 🌍 Automatic country detection from GPS EXIF data (217 countries, offline!)
+- **Geo Visualization**: Display country flags on photos based on GPS coordinates
 
 ### 🎨 **User Interface**
 - **Material Design**: Modern Flutter UI following Material Design principles
@@ -43,6 +46,61 @@ A cross-platform image gallery and file explorer built with Flutter. Browse, vie
 - **Raster Images**: JPG, JPEG, PNG, GIF, BMP, WebP
 - **Vector Images**: SVG (with flutter_svg)
 
+## 🌍 Geolocation Features
+
+### Country Detection from Photos
+Photo View automatically extracts GPS coordinates from EXIF metadata and displays country flags on images:
+
+- **🗺️ Offline Database**: Built-in database of 217 countries/territories (~16KB)
+- **📍 GPS Extraction**: Reads coordinates from image EXIF data
+- **🏳️ Country Flags**: Displays flag emoji for detected countries
+- **⚡ Instant Detection**: No network required, works offline
+- **🌐 Global Coverage**: Supports ~98% of world territories including:
+  - Major countries worldwide
+  - Caribbean islands (Jamaica, Barbados, Trinidad, etc.)
+  - Pacific islands (Fiji, Samoa, Kiribati, etc.)
+  - European microstates (Monaco, Vatican, San Marino, etc.)
+  - Autonomous territories (Hong Kong, Macau, Greenland, etc.)
+
+### Visual Indicators
+- **Flag Badge**: Country flag shown on image thumbnail when GPS detected
+- **Location Icon**: 📍 indicator for photos without GPS data
+- **Toggle Button**: Show/hide country flags in gallery view
+
+### How It Works
+1. Photo View reads GPS coordinates from image EXIF metadata
+2. Coordinates are matched against offline country bounding boxes
+3. Country code is converted to flag emoji (🇷🇺, 🇺🇸, 🇫🇷, etc.)
+4. Flag displayed on image thumbnail and in viewer
+
+**Note**: Only works with photos that have GPS location data in EXIF. Photos without GPS show a location-off icon instead.
+
+## 📋 Clipboard Features
+
+### Copy Image to Clipboard
+Quickly copy images to system clipboard for pasting into other applications:
+
+- **🖱️ Copy Button**: Click the copy icon in image viewer header
+- **⌨️ Keyboard Shortcut**: Press `Ctrl+C` (or `Cmd+C` on Mac) while viewing an image
+- **📎 Smart Copy**: Automatically detects image format (PNG, JPEG, GIF, BMP, WebP)
+- **✅ Visual Feedback**: Green notification when image copied successfully
+- **⚠️ Requirements**: On Linux, requires `xclip` package:
+  ```bash
+  sudo apt install xclip
+  ```
+
+### Platform Support
+- **Linux**: Full image copy support via xclip
+- **Windows/macOS**: Copies file path (image copy support coming soon)
+
+### Usage
+1. Open any image in the viewer
+2. Press `Ctrl+C` or click the copy button
+3. Paste into any application with `Ctrl+V`
+   - Image editors (GIMP, Krita, etc.)
+   - Office applications (LibreOffice, etc.)
+   - Web browsers and messaging apps
+
 ## Getting Started
 
 ### Prerequisites
@@ -50,6 +108,10 @@ A cross-platform image gallery and file explorer built with Flutter. Browse, vie
 - For desktop builds: platform-specific requirements
   - **Linux**: `clang cmake ninja-build pkg-config libgtk-3-dev`
   - **Windows**: Visual Studio with C++ components
+- **Optional for Linux clipboard support**: `xclip` (for copying images)
+  ```bash
+  sudo apt install xclip
+  ```
 
 ### Installation
 ```bash
@@ -124,6 +186,7 @@ sudo update-desktop-database
 - **Escape**: Close image preview overlay
 - **Arrow Keys**: Navigate between images in viewer
 - **Enter**: Confirm dialog actions
+- **Ctrl+C**: Copy image to clipboard (requires xclip on Linux)
 
 ### Selection Mode
 - **Long Press**: Enter selection mode and select first image
@@ -135,11 +198,29 @@ sudo update-desktop-database
 ## Architecture
 
 - **State Management**: Built-in Flutter state management with StatefulWidget
-- **File System**: Dart's `dart:io` for cross-platform file operations  
+- **File System**: Dart's `dart:io` for cross-platform file operations
 - **Image Handling**: Optimized with ResizeImage and efficient caching
 - **Performance**: Lazy loading, batch processing, and scroll position memory
 - **Sorting**: Real-time sorting with `statSync()` for accurate file modification times
 - **Memory Management**: Efficient batch processing prevents UI blocking during large scans
+- **EXIF Processing**: Image metadata extraction using `exif` package
+- **Geolocation**: Offline country detection with custom bounding box database (217 countries)
+- **Clipboard**: Platform-specific clipboard integration (xclip on Linux)
+- **Country Database**: Lightweight offline database (~16KB) with smart conflict resolution
+
+## Dependencies
+
+### Flutter Packages
+- **flutter_svg** (^2.0.10+1): SVG image rendering
+- **exif** (^3.3.0): EXIF metadata extraction from images
+- **path** (^1.8.3): Cross-platform path manipulation
+- **path_provider** (^2.1.1): Access to common file system locations
+
+### System Requirements (Linux)
+- **xclip**: Clipboard management for image copy functionality
+  ```bash
+  sudo apt install xclip
+  ```
 
 ## Contributing
 
@@ -152,6 +233,10 @@ Contributions are welcome! This project demonstrates modern Flutter development 
 - Real-time file system monitoring and updates
 - Custom dialog implementations with validation
 - Pointer event handling for enhanced user experience
+- EXIF metadata processing and GPS coordinate extraction
+- Offline geolocation with custom database implementation
+- Platform-specific clipboard integration
+- Keyboard shortcuts and hotkey handling
 
 ## License
 
